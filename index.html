@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Спрайти, спрайтшіти та простий UI — Варіант А</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 20px;
+      background-color: #181825;
+      color: #cdd6f4;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h2 { margin-top: 0; color: #89b4fa; }
+    .workspace {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    canvas {
+      background-color: #11111b;
+      border: 2px solid #45475a;
+      border-radius: 10px;
+      image-rendering: pixelated;
+    }
+    .ui-panel {
+      background: #313244;
+      padding: 18px;
+      border-radius: 10px;
+      width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 6px;
+    }
+    button {
+      flex: 1;
+      padding: 8px 10px;
+      border: none;
+      border-radius: 6px;
+      background: #45475a;
+      color: #cdd6f4;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #585b70; }
+    button.active {
+      background: #89b4fa;
+      color: #11111b;
+    }
+    .info-box {
+      background: #1e1e2e;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #a6adc8;
+    }
+    .info-box span { color: #f9e2af; font-weight: bold; }
+    label { font-size: 14px; font-weight: 600; }
+    input[type="range"] { width: 100%; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <h2>Спрайтшіт та анімація персонажа (Варіант А)</h2>
+
+  <div class="workspace">
+    <!-- Головне полотно -->
+    <canvas id="gameCanvas" width="460" height="360"></canvas>
+
+    <!-- Простий UI -->
+    <div class="ui-panel">
+      <div class="control-group">
+        <label>Анімація (клавіші 1, 2, 3):</label>
+        <div class="btn-row">
+          <button id="btnIdle" class="active" onclick="setAnimation('idle')">[1] Стояти</button>
+          <button id="btnWalk" onclick="setAnimation('walk')">[2] Крок</button>
+          <button id="btnRun" onclick="setAnimation('run')">[3] Біг</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Масштаб: <span id="scaleVal">2.5</span>x</label>
+        <input type="range" id="scaleSlider" min="1" max="4" step="0.25" value="2.5">
+      </div>
+
+      <div class="btn-row">
+        <button id="flipBtn">⇄ Flip (Віддзеркалити)</button>
+        <button id="hitboxBtn" class="active">Hitbox: УВІМК</button>
+      </div>
+
+      <div class="info-box">
+        <div>Стан: <span id="statState">idle</span></div>
+        <div>Швидкість: <span id="statFps">3</span> FPS</div>
+        <div>Кадр: <span id="statFrame">1 / 4</span></div>
+        <div>Hitbox (w×h): <span id="statHitbox">32 × 48</span> px</div>
+      </div>
+
+      <div class="control-group">
+        <label>Згенерований спрайтшіт (3×4):</label>
+        <canvas id="sheetPreview" width="256" height="192" style="width: 100%; height: auto;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const previewCanvas = document.getElementById('sheetPreview');
+    const previewCtx = previewCanvas.getContext('2d');
+
+    // Розміри одного кадру у спрайтшіті
+    const FRAME_W = 64;
+    const FRAME_H = 64;
+    const COLS = 4; // 4 кадри на анімацію
+    const ROWS = 3; // 3 анімації: 0 - idle, 1 - walk, 2 - run
+
+    // 1. ПРОГРАМНА ГЕНЕРАЦІЯ СПРАЙТШІТА (без зовнішніх файлів)
+    const spriteSheet = document.createElement('canvas');
+    spriteSheet.width = FRAME_W * COLS;
+    spriteSheet.height = FRAME_H * ROWS;
+    const sCtx = spriteSheet.getContext('2d');
+
+    function generateSpriteSheet() {
+      const states = ['idle', 'walk', 'run'];
+
+      states.forEach((state, row) => {
+        for (let col = 0; col < COLS; col++) {
+          const ox = col * FRAME_W;
+          const oy = row * FRAME_H;
+
+          // Параметри пози для кожного кадру
+          let bobY = 0;
+          let lean = 0;
+          let legAngle = 0;
+          let armAngle = 0;
+          let bodyColor = '#89b4fa';
+
+          if (state === 'idle') {
+            // Повільне дихання (вгору-вниз на 2px)
+            bobY = (col === 1 || col === 2) ? 2 : 0;
+            bodyColor = '#89b4fa';
+          } else if (state === 'walk') {
+            // Крокування
+            bobY = (col % 2 === 1) ? -2 : 0;
+            lean = 0.08;
+            legAngle = Math.sin((col / COLS) * Math.PI * 2) * 0.45;
+            armAngle = -legAngle * 0.8;
+            bodyColor = '#a6e3a1';
+          } else if (state === 'run') {
+            // Біг з сильним нахилом вперед
+            bobY = (col % 2 === 0) ? -4 : 1;
+            lean = 0.28;
+            legAngle = Math.sin((col / COLS) * Math.PI * 2) * 0.85;
+            armAngle = -legAngle;
+            bodyColor = '#fab387';
+          }
+
+          sCtx.save();
+          sCtx.translate(ox + FRAME_W / 2, oy + 36 + bobY);
+          sCtx.rotate(lean);
+
+          // Задня рука
+          sCtx.save();
+          sCtx.translate(0, -10);
+          sCtx.rotate(-armAngle);
+          sCtx.fillStyle = '#6c7086';
+          sCtx.fillRect(-3, 0, 6, 14);
+          sCtx.restore();
+
+          // Задня нога
+          sCtx.save();
+          sCtx.translate(0, 8);
+          sCtx.rotate(-legAngle);
+          sCtx.fillStyle = '#585b70';
+          sCtx.fillRect(-4, 0, 8, 16);
+          sCtx.restore();
+
+          // Тулуб
+          sCtx.fillStyle = bodyColor;
+          sCtx.beginPath();
+          sCtx.roundRect(-10, -14, 20, 24, 5);
+          sCtx.fill();
+
+          // Голова
+          sCtx.fillStyle = '#f9e2af';
+          sCtx.beginPath();
+          sCtx.arc(0, -22, 9, 0, Math.PI * 2);
+          sCtx.fill();
+
+          // Око (показує напрямок погляду вправо)
+          sCtx.fillStyle = '#11111b';
+          sCtx.fillRect(3, -24, 3, 3);
+
+          // Передня нога
+          sCtx.save();
+          sCtx.translate(0, 8);
+          sCtx.rotate(legAngle);
+          sCtx.fillStyle = '#cdd6f4';
+          sCtx.fillRect(-4, 0, 8, 16);
+          sCtx.restore();
+
+          // Передня рука
+          sCtx.save();
+          sCtx.translate(0, -10);
+          sCtx.rotate(armAngle);
+          sCtx.fillStyle = '#bac2de';
+          sCtx.fillRect(-3, 0, 6, 14);
+          sCtx.restore();
+
+          sCtx.restore();
+        }
+      });
+
+      // Малюємо прев'ю спрайтшіта в UI
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewCtx.drawImage(spriteSheet, 0, 0);
+      previewCtx.strokeStyle = 'rgba(255,255,255,0.15)';
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          previewCtx.strokeRect(c * FRAME_W, r * FRAME_H, FRAME_W, FRAME_H);
+        }
+      }
+    }
+
+    generateSpriteSheet();
+
+    // 2. НАЛАШТУВАННЯ АНІМАЦІЙ ТА УНІКАЛЬНИХ HITBOX-ІВ
+    const animations = {
+      idle: {
+        row: 0,
+        frames: 4,
+        fps: 3, // Slow anim (стояти)
+        // Вузький та високий hitbox у спокої
+        hitbox: { offsetX: -12, offsetY: -26, w: 24, h: 52 }
+      },
+      walk: {
+        row: 1,
+        frames: 4,
+        fps: 11, // 10-12 FPS (крокувати)
+        // Трохи ширший hitbox через розмах рук і ніг
+        hitbox: { offsetX: -16, offsetY: -26, w: 32, h: 52 }
+      },
+      run: {
+        row: 2,
+        frames: 4,
+        fps: 15, // 14-16 FPS (бігти)
+        // Широкий та нижчий hitbox через сильний нахил вперед у бігу
+        hitbox: { offsetX: -20, offsetY: -20, w: 42, h: 46 }
+      }
+    };
+
+    // Стан персонажа
+    let currentState = 'idle';
+    let frameIndex = 0;
+    let frameTimer = 0;
+    let scale = 2.5;
+    let isFlipped = false;
+    let showHitbox = true;
+    let lastTime = 0;
+
+    // UI елементи
+    const scaleSlider = document.getElementById('scaleSlider');
+    const scaleVal = document.getElementById('scaleVal');
+    const flipBtn = document.getElementById('flipBtn');
+    const hitboxBtn = document.getElementById('hitboxBtn');
+
+    function setAnimation(stateName) {
+      if (!animations[stateName]) return;
+      currentState = stateName;
+      frameIndex = 0;
+      frameTimer = 0;
+
+      // Оновлення активних кнопок
+      document.getElementById('btnIdle').classList.toggle('active', stateName === 'idle');
+      document.getElementById('btnWalk').classList.toggle('active', stateName === 'walk');
+      document.getElementById('btnRun').classList.toggle('active', stateName === 'run');
+    }
+
+    // Обробка клавіш 1, 2, 3
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '1') setAnimation('idle');
+      if (e.key === '2') setAnimation('walk');
+      if (e.key === '3') setAnimation('run');
+    });
+
+    // Слайдер масштабу
+    scaleSlider.addEventListener('input', (e) => {
+      scale = parseFloat(e.target.value);
+      scaleVal.textContent = scale.toFixed(2).replace(/\.00$/, '');
+    });
+
+    // Кнопка Flip
+    flipBtn.addEventListener('click', () => {
+      isFlipped = !isFlipped;
+      flipBtn.classList.toggle('active', isFlipped);
+    });
+
+    // Кнопка відображення Hitbox
+    hitboxBtn.addEventListener('click', () => {
+      showHitbox = !showHitbox;
+      hitboxBtn.classList.toggle('active', showHitbox);
+      hitboxBtn.textContent = showHitbox ? 'Hitbox: УВІМК' : 'Hitbox: ВИМК';
+    });
+
+    // 3. ГОЛОВНИЙ ЦИКЛ ОНОВЛЕННЯ ТА МАЛЮВАННЯ
+    function update(dt) {
+      const anim = animations[currentState];
+      const frameDuration = 1 / anim.fps;
+
+      frameTimer += dt;
+      if (frameTimer >= frameDuration) {
+        frameTimer -= frameDuration;
